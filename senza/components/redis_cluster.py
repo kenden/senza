@@ -21,7 +21,7 @@ def component_redis_cluster(definition, configuration, args, info, force, accoun
             "EngineVersion": configuration.get('EngineVersion', '2.8.19'),
             "CacheParameterGroupName": configuration.get('CacheParameterGroupName', 'default.redis2.8'),
             "NumCacheClusters": number_of_nodes,
-            "SecurityGroupIds": resolve_security_groups(configuration["SecurityGroups"], args.region),
+            "SecurityGroupIds": resolve_security_groups(configuration["SecurityGroups"], args.region, account_info.VpcID),
             "ReplicationGroupDescription": "Redis replicated cache cluster: " + name,
         }
     }

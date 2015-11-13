@@ -130,7 +130,7 @@ def component_elastic_load_balancer(definition, configuration, args, info, force
             ],
             "CrossZone": "true",
             "LoadBalancerName": loadbalancer_name,
-            "SecurityGroups": resolve_security_groups(configuration["SecurityGroups"], args.region),
+            "SecurityGroups": resolve_security_groups(configuration["SecurityGroups"], args.region, account_info.VpcID),
             "Tags": [
                 # Tag "Name"
                 {

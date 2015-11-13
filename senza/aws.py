@@ -6,25 +6,18 @@ import boto3
 from botocore.exceptions import ClientError
 
 
-def get_security_group(region: str, sg_name: str):
+def get_security_group(region: str, sg_name: str, vpc: str):
     ec2 = boto3.resource('ec2', region)
-    try:
-        return list(ec2.security_groups.filter(GroupNames=[sg_name]))[0]
-    except ClientError as e:
-        if e.response['Error']['Code'] == 'InvalidGroup.NotFound':
-            return None
-        elif e.response['Error']['Code'] == 'VPCIdNotSpecified':
-            # no Default VPC, we must use the lng way...
-            for sg in ec2.security_groups.all():
-                # FIXME: What if we have 2 VPC, with a SG with the same name?!
-                if sg.group_name == sg_name:
-                    return sg
-            return None
-        else:
-            raise
+    filters = [
+        {'Name': 'group-name', 'Values': [sg_name]},
+        {'Name': 'vpc-id',     'Values': [vpc]}
+    ]
+    groups = list(ec2.security_groups.filter(Filters=filters))
+    if len(groups) == 0:
+        return None
+    return groups[0]
 
-
-def resolve_security_groups(security_groups: list, region: str):
+def resolve_security_groups(security_groups: list, region: str, vpc: str):
     result = []
     for security_group in security_groups:
         if isinstance(security_group, dict):
@@ -32,7 +25,7 @@ def resolve_security_groups(security_groups: list, region: str):
         elif security_group.startswith('sg-'):
             result.append(security_group)
         else:
-            sg = get_security_group(region, security_group)
+            sg = get_security_group(region, security_group, vpc)
             if not sg:
                 raise ValueError('Security Group "{}" does not exist'.format(security_group))
             result.append(sg.id)

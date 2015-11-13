@@ -562,9 +562,10 @@ def list_stacks(region, stack_ref, all, output, w, watch):
 @click.option('--disable-rollback', is_flag=True, help='Disable Cloud Formation rollback on failure')
 @click.option('--dry-run', is_flag=True, help='No-op mode: show what would be created')
 @click.option('-f', '--force', is_flag=True, help='Ignore failing validation checks')
-def create(definition, region, version, parameter, disable_rollback, dry_run, force):
+@click.option('-v', '--vpc', is_flag=False, help='Define which VPC to use. If not specified the default VPC is used')
+def create(definition, region, version, parameter, disable_rollback, dry_run, force, vpc):
     '''Create a new Cloud Formation stack from the given Senza definition file'''
-    data = create_cf_template(definition, region, version, parameter, force)
+    data = create_cf_template(definition, region, version, parameter, force, vpc)
     cf = boto3.client('cloudformation', region)
 
     with Action('Creating Cloud Formation stack {}..'.format(data['StackName'])) as act:
@@ -611,16 +612,17 @@ def update(definition, region, version, parameter, disable_rollback, dry_run, fo
 @region_option
 @json_output_option
 @click.option('-f', '--force', is_flag=True, help='Ignore failing validation checks')
-def print_cfjson(definition, region, version, parameter, output, force):
+@click.option('-v', '--vpc', is_flag=False, help='Define which VPC to use. If not specified the default VPC is used')
+def print_cfjson(definition, region, version, parameter, output, force, vpc):
     '''Print the generated Cloud Formation template'''
-    data = create_cf_template(definition, region, version, parameter, force)
+    data = create_cf_template(definition, region, version, parameter, force, vpc)
     print_json(data['TemplateBody'], output)
 
 
-def create_cf_template(definition, region, version, parameter, force):
+def create_cf_template(definition, region, version, parameter, force, vpc=None):
     region = get_region(region)
     check_credentials(region)
-    account_info = AccountArguments(region=region)
+    account_info = AccountArguments(region=region, VpcID=vpc)
     args = parse_args(definition, region, version, parameter, account_info)
 
     with Action('Generating Cloud Formation template..'):

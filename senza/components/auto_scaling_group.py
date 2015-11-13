@@ -68,7 +68,7 @@ def component_auto_scaling_group(definition, configuration, args, info, force, a
 
     if "SecurityGroups" in configuration:
         definition["Resources"][config_name]["Properties"]["SecurityGroups"] = \
-            resolve_security_groups(configuration["SecurityGroups"], args.region)
+            resolve_security_groups(configuration["SecurityGroups"], args.region, account_info.VpcID)
 
     if "UserData" in configuration:
         definition["Resources"][config_name]["Properties"]["UserData"] = {

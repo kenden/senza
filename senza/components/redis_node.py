@@ -19,7 +19,7 @@ def component_redis_node(definition, configuration, args, info, force, account_i
             "CacheSubnetGroupName": {
                 "Ref": "RedisSubnetGroup"
             },
-            "VpcSecurityGroupIds": resolve_security_groups(configuration["SecurityGroups"], args.region)
+            "VpcSecurityGroupIds": resolve_security_groups(configuration["SecurityGroups"], args.region, account_info.VpcID)
         }
     }
 
