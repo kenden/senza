@@ -8,7 +8,7 @@ def test_get_security_group(monkeypatch):
     monkeypatch.setattr('boto3.resource', MagicMock(return_value=ec2))
 
     results = None
-    assert results == get_security_group('myregion', 'group_inexistant')
+    assert results == get_security_group('myregion', 'group_inexistant', 'myvpc')
     
 
 def test_resolve_security_groups(monkeypatch):
@@ -26,7 +26,7 @@ def test_resolve_security_groups(monkeypatch):
     result.append('sg-007')
     result.append('sg-test')
 
-    assert result == resolve_security_groups(security_groups, 'myregion')
+    assert result == resolve_security_groups(security_groups, 'myregion', 'myvpc')
 
 
 def test_create(monkeypatch):
