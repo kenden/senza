@@ -16,7 +16,7 @@ import time
 from subprocess import call
 
 import click
-from clickclick import AliasedGroup, Action, choice, info, FloatRange, OutputFormat, fatal_error
+from clickclick import AliasedGroup, Action, choice, info, FloatRange, OutputFormat, error, fatal_error, ok
 from clickclick.console import print_table
 import requests
 import yaml
@@ -43,6 +43,7 @@ STYLES = {
     'RUNNING': {'fg': 'green'},
     'TERMINATED': {'fg': 'red'},
     'DELETE_COMPLETE': {'fg': 'red'},
+    'DELETE_FAILED': {'fg': 'red'},
     'ROLLBACK_COMPLETE': {'fg': 'red'},
     'CREATE_COMPLETE': {'fg': 'green'},
     'CREATE_FAILED': {'fg': 'red'},
@@ -53,6 +54,7 @@ STYLES = {
     'STOPPED': {'fg': 'red', 'bold': True},
     'SHUTTING_DOWN': {'fg': 'red', 'bold': True},
     'ROLLBACK_IN_PROGRESS': {'fg': 'red', 'bold': True},
+    'ROLLBACK_FAILED': {'fg': 'red'},
     'UPDATE_COMPLETE': {'fg': 'green'},
     'UPDATE_ROLLBACK_IN_PROGRESS': {'fg': 'red', 'bold': True},
     'UPDATE_IN_PROGRESS': {'fg': 'yellow', 'bold': True},
@@ -1236,7 +1238,8 @@ def get_auto_scaling_groups(stack_refs, region):
 @region_option
 @click.option('--image', metavar='AMI_ID_OR_LATEST', help='Use specified image (AMI ID or "latest")')
 @click.option('--instance-type', metavar='INSTANCE_TYPE', help='Use specified EC2 instance type')
-def patch(stack_ref, region, image, instance_type):
+@click.option('--user-data', metavar='YAML', help='Patch properties in user data YAML')
+def patch(stack_ref, region, image, instance_type, user_data):
     '''Patch specific properties of existing stack.
 
     Currently only supports patching ASG launch configurations.'''
@@ -1248,7 +1251,8 @@ def patch(stack_ref, region, image, instance_type):
         image = find_taupage_image(region).id
 
     properties = {'ImageId': image,
-                  'InstanceType': instance_type}
+                  'InstanceType': instance_type,
+                  'UserData': yaml.safe_load(user_data) if user_data else None}
     # remove empty values
     properties = {k: v for k, v in properties.items() if v}
 
@@ -1269,8 +1273,9 @@ def patch(stack_ref, region, image, instance_type):
 @cli.command('respawn-instances')
 @click.argument('stack_ref', nargs=-1)
 @click.option('--inplace', is_flag=True, help='Perform inplace update, do not scale out')
+@click.option('-f', '--force', is_flag=True, help='Force respawn even if Launch Configuration is unchanged')
 @region_option
-def respawn_instances(stack_ref, inplace, region):
+def respawn_instances(stack_ref, inplace, force, region):
     '''Replace all EC2 instances in Auto Scaling Group(s)
 
     Performs a rolling update to prevent downtimes.'''
@@ -1280,7 +1285,7 @@ def respawn_instances(stack_ref, inplace, region):
     check_credentials(region)
 
     for asg_name in get_auto_scaling_groups(stack_refs, region):
-        respawn_auto_scaling_group(asg_name, region, inplace=inplace)
+        respawn_auto_scaling_group(asg_name, region, inplace=inplace, force=force)
 
 
 @cli.command()
@@ -1312,6 +1317,68 @@ def scale(stack_ref, region, desired_capacity):
                 asg.update_auto_scaling_group(AutoScalingGroupName=asg_name,
                                               DesiredCapacity=desired_capacity,
                                               **kwargs)
+
+
+def failure_event(event: dict):
+    '''
+    >>> failure_event({})
+    False
+
+    >>> failure_event({'ResourceStatusReason': 'foo', 'ResourceStatus': 'FAIL'})
+    True
+    '''
+    status = event.get('ResourceStatus')
+    return bool(event.get('ResourceStatusReason') and ('FAIL' in status or 'ROLLBACK' in status))
+
+
+@cli.command()
+@click.argument('stack_ref', nargs=-1)
+@click.option('-d', '--deletion', is_flag=True, help='Wait for deletion instead of CREATE_COMPLETE')
+@click.option('-t', '--timeout', type=click.IntRange(0, 7200, clamp=True), metavar='SECS', default=1800,
+              help='Maximum wait time (default: 1800s)')
+@region_option
+def wait(stack_ref, region, deletion, timeout):
+    '''Wait for successfull stack creation or deletion.
+
+    Supports waiting for more than one stack up to timeout seconds.'''
+
+    stack_refs = get_stack_refs(stack_ref)
+    region = get_region(region)
+    cf = boto3.client('cloudformation', region)
+
+    cutoff = time.time() + timeout
+    target_status = 'DELETE_COMPLETE' if deletion else 'CREATE_COMPLETE'
+
+    while time.time() < cutoff:
+        stacks_ok = set()
+        stacks_nok = set()
+        for stack in get_stacks(stack_refs, region, all=True):
+            if stack.StackStatus == target_status:
+                stacks_ok.add((stack.name, stack.version))
+            elif stack.StackStatus.endswith('_FAILED') or stack.StackStatus.endswith('_COMPLETE'):
+                # output event messages for troubleshooting
+                events = cf.describe_stack_events(StackName=stack.StackId)['StackEvents']
+
+                for event in sorted(events, key=lambda x: x['Timestamp']):
+                    if failure_event(event):
+                        error('ERROR: {LogicalResourceId} {ResourceStatus}: {ResourceStatusReason}'.format(**event))
+                fatal_error('ERROR: Stack {}-{} has status {}'.format(stack.name, stack.version, stack.StackStatus))
+            else:
+                stacks_nok.add((stack.name, stack.version, stack.StackStatus))
+
+        if stacks_nok:
+            info('Waiting up to {:.0f} more secs for stack{} {}..'.format(cutoff - time.time(),
+                 's' if len(stacks_nok) > 1 else '',
+                 ', '.join(['{}-{} ({})'.format(*x) for x in sorted(stacks_nok)])))
+        elif stacks_ok:
+            ok('OK: Stack(s) {} {} successfully.'.format(
+               ', '.join(['{}-{}'.format(*x) for x in sorted(stacks_ok)]),
+               'deleted' if deletion else 'created'))
+            return
+        else:
+            raise click.UsageError('No matching stack for "{}" found'.format(' '.join(stack_ref)))
+        time.sleep(5)
+    raise click.Abort()
 
 
 def main():

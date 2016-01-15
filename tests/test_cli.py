@@ -623,7 +623,7 @@ def test_console(monkeypatch):
             return ec2
         return MagicMock()
 
-    def my_client(rtype, *args):
+    def my_client(rtype, *args, **kwargs):
         if rtype == 'cloudformation':
             cf = MagicMock()
             cf.list_stacks.return_value = {'StackSummaries': [{'StackName': 'test-1'}]}
@@ -1105,7 +1105,7 @@ def test_traffic(monkeypatch):
     def my_resource(rtype, *args):
         return MagicMock()
 
-    def my_client(rtype, *args):
+    def my_client(rtype, *args, **kwargs):
         if rtype == 'route53':
             return route53
         return MagicMock()
@@ -1161,6 +1161,7 @@ def test_traffic(monkeypatch):
 
     def run(opts):
         result = runner.invoke(cli, common_opts + opts, catch_exceptions=False)
+        assert 'Setting weights for myapp.example.org..' in result.output
         return result
 
     def weights():
